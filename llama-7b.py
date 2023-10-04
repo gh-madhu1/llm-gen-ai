@@ -2,10 +2,12 @@ import accelerate
 import llm
 import time
 from functools import wraps
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from transformers import BertTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+import torch
 
+device = torch.device("cpu")
 
+# Trakcs the process execution time 
 def track_process_time(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -19,32 +21,30 @@ def track_process_time(func):
     
 @track_process_time
 def load_preptrained_model(model_path):
-    # Load the LLaMA 7B model
-    return AutoModelForCausalLM.from_pretrained(model_path)
+    # Load the pre-trained LLAMA-7B model.
+    model = AutoModelForCausalLM.from_pretrained("Llama-2-7b-hf", 
+                            quantization_config=BitsAndBytesConfig(
+                                            load_in_8bit_int8_cpu=True))
+    return model
 
 @track_process_time
 def load_tokenizer_model(model_path):
-    return AutoTokenizer.from_pretrained('bert-base-uncased')
+    return AutoTokenizer.from_pretrained('Llama-2-7b-hf',
+                            quantization_config=BitsAndBytesConfig(
+                                            load_in_8bit_int8_cpu=True))
 
 @track_process_time    
 def generate(input):
-    #tokenize input
-    #inputs = [ word.lower() for word in input.split()]
-    #print(inputs)
-    model_inputs = tokenizer(
-                            input, 
-                            max_length=100,  
-                            truncation=True, 
-                            return_tensors="pt")
-    print(model_inputs)
-    # Generate some text
-    encoded_text = model.generate(input_ids = model_inputs["token_type_ids"], max_length=100)
-    return tokenizer.decode(encoded_text)
-    #return encoded_text
-
+    generated_text = model.generate(input_ids=tokenizer(input, return_tensors="pt").input_ids, max_length=100)
+    try:
+        return tokenizer.decode(generated_text[0])
+    except:
+        return 'Generated text decode error'
+    
+    return None
 
 model_path = "Llama-2-7b-hf"
 model = load_preptrained_model(model_path)
 tokenizer = load_tokenizer_model(model_path)
 
-print(generate("Once upon on a time"))
+print(generate("Once upon on a time there was a king"))
