@@ -1,7 +1,0 @@
-h5py==3.9.0
-huggingface-hub==0.17.3
-keras==2.13.1
-tensorflow==2.13.0
-tokenizers==0.13.3
-torch==2.0.1
-transformers==4.33.2
