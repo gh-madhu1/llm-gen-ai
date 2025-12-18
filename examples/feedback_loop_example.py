@@ -4,7 +4,7 @@ Enhanced QA Agent with Human Feedback Loop - Example Usage
 This script demonstrates the human feedback loop feature.
 """
 
-from llm_gen_ai.utils import load_pretrained_model, load_tokenizer_model
+from llm_gen_ai.core.model_loader import load_pretrained_model, load_tokenizer_model
 from llm_gen_ai.agents.enhanced_qa_agent import EnhancedQAAgent
 from llm_gen_ai.config import MODEL_PATH
 

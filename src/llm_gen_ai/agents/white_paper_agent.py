@@ -7,7 +7,8 @@ import torch
 from llm_gen_ai.core.memory_manager import ContextMemory
 from llm_gen_ai.core.search_engine import SearchEngine
 from llm_gen_ai.core.document_generator import DocumentGenerator
-from llm_gen_ai.utils import truncate_text, clear_device_cache, track_process_time
+from llm_gen_ai.utils import truncate_text, track_process_time
+from llm_gen_ai.core.model_loader import clear_device_cache
 from llm_gen_ai.config import (
     DEVICE,
     MAX_STEPS,

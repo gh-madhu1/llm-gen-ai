@@ -4,7 +4,7 @@ Enhanced QA Agent Runner
 Uses improved accuracy pipeline with query analysis, verification, and synthesis.
 """
 
-from llm_gen_ai.utils import load_pretrained_model, load_tokenizer_model
+from llm_gen_ai.core.model_loader import load_pretrained_model, load_tokenizer_model
 from llm_gen_ai.agents.enhanced_qa_agent import interactive_mode, EnhancedQAAgent
 from llm_gen_ai.config import MODEL_PATH
 import sys

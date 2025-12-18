@@ -4,12 +4,13 @@ Multi-stage pipeline: Query Analysis → Verification → Search → Synthesis
 """
 
 import torch
-from llm_gen_ai.utils import (
+import torch
+from llm_gen_ai.core.model_loader import (
     load_pretrained_model,
     load_tokenizer_model,
-    track_process_time,
     clear_device_cache
 )
+from llm_gen_ai.utils import track_process_time
 from llm_gen_ai.config import DEVICE, MODEL_PATH, GENERATION_CONFIG, MAX_MODEL_LENGTH
 
 # Import new modules
@@ -20,6 +21,8 @@ from llm_gen_ai.modules.answer_synthesizer import AnswerSynthesizer
 from llm_gen_ai.modules.clarification_handler import ClarificationHandler
 from llm_gen_ai.modules.answer_refiner import AnswerRefiner
 from llm_gen_ai.modules.feedback_loop import FeedbackLoop
+from llm_gen_ai.core.observability import AgentLogger
+from concurrent.futures import ThreadPoolExecutor
 
 
 class EnhancedQAAgent:
@@ -40,6 +43,7 @@ class EnhancedQAAgent:
         self.feedback_loop = FeedbackLoop(max_iterations=3)
         
         self.enable_verification = enable_verification
+        self.logger = AgentLogger()
     
     @track_process_time
     def generate_text(self, prompt, max_new_tokens=512, skip_cache_clear=True, stream=False):
@@ -53,7 +57,7 @@ class EnhancedQAAgent:
             stream: Whether to stream tokens
         
         Returns:
-            Generated response text (or yields tokens if streaming)
+            Generated response text (or generator if streaming)
         """
         # Tokenize
         inputs = self.tokenizer(
@@ -65,39 +69,7 @@ class EnhancedQAAgent:
         ).to(DEVICE)
 
         if stream:
-            # Streaming mode
-            from transformers import TextIteratorStreamer
-            from threading import Thread
-            
-            streamer = TextIteratorStreamer(
-                self.tokenizer,
-                skip_prompt=True,
-                skip_special_tokens=True
-            )
-            
-            generation_kwargs = {
-                "input_ids": inputs.input_ids,
-                "attention_mask": inputs.get("attention_mask"),
-                "max_new_tokens": max_new_tokens,
-                "pad_token_id": self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
-                "streamer": streamer,
-                **GENERATION_CONFIG
-            }
-            
-            thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
-            thread.start()
-            
-            generated_text = ""
-            for new_text in streamer:
-                generated_text += new_text
-                yield new_text
-            
-            thread.join()
-            
-            if not skip_cache_clear:
-                clear_device_cache()
-            
-            return generated_text
+            return self._generate_stream(inputs, max_new_tokens, skip_cache_clear)
         else:
             # Non-streaming mode
             with torch.no_grad():
@@ -116,6 +88,40 @@ class EnhancedQAAgent:
                 clear_device_cache()
             
             return response
+
+    def _generate_stream(self, inputs, max_new_tokens, skip_cache_clear):
+        """Helper for streaming generation."""
+        from transformers import TextIteratorStreamer
+        from threading import Thread
+        
+        streamer = TextIteratorStreamer(
+            self.tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True
+        )
+        
+        generation_kwargs = {
+            "input_ids": inputs.input_ids,
+            "attention_mask": inputs.get("attention_mask"),
+            "max_new_tokens": max_new_tokens,
+            "pad_token_id": self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
+            "streamer": streamer,
+            **GENERATION_CONFIG
+        }
+        
+        thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
+        thread.start()
+        
+        generated_text = ""
+        for new_text in streamer:
+            generated_text += new_text
+            yield new_text
+        
+        thread.join()
+        
+        if not skip_cache_clear:
+            clear_device_cache()
+
     
     def answer_query(self, query, use_history=False, stream=False, show_analysis=True):
         """
@@ -130,20 +136,43 @@ class EnhancedQAAgent:
         Returns:
             Generated answer (or generator if streaming)
         """
-        # Step 1: Analyze Query
-        print("\n📋 Analyzing query...")
-        analysis = self.query_analyzer.analyze_query(query)
-        
-        if show_analysis:
-            print(self.query_analyzer.format_analysis(analysis))
+
+        # Start trace for this request
+        with self.logger.trace_context():
+            self.logger.info(f"Received query: {query}", query=query)
+            
+            # Step 1: Analyze Query
+            # print("\n📋 Analyzing query...")
+            with self.logger.track_latency("query_analysis"):
+                analysis = self.query_analyzer.analyze_query(query)
+                
+                # Enhanced LLM Rewriting
+                try:
+                    llm_rewritten = self.rewrite_query_with_llm(query)
+                    if llm_rewritten and llm_rewritten.lower() != query.lower():
+                        analysis['rewritten'] = llm_rewritten
+                        self.logger.info("Query rewritten by LLM", original=query, rewritten=llm_rewritten)
+                except Exception as e:
+                    self.logger.error("LLM rewriting failed", error=str(e))
+            
+            self.logger.info("Query Analysis Complete", analysis=analysis)
+            
+            if show_analysis:
+                # Still visual for CLI, but could be purely logs in prod
+                print(self.query_analyzer.format_analysis(analysis))
         
         # Step 2: Check for Clarification Needs (NEW)
         clarifications = None
         augmented_query = query
         
         if analysis.get('needs_clarification') or analysis.get('ambiguity_score', 0) > 0.5:
-            if self.enable_verification and show_analysis:
-                print(f"\n⚠️  Query ambiguity score: {analysis.get('ambiguity_score', 0):.2f}")
+            if self.enable_verification:
+                self.logger.warning(
+                    "Ambiguous query detected", 
+                    ambiguity_score=analysis.get('ambiguity_score', 0)
+                )
+                if show_analysis:
+                    print(f"\n⚠️  Query ambiguity score: {analysis.get('ambiguity_score', 0):.2f}")
                 
                 # Generate and collect clarifying questions
                 questions = self.clarification_handler.generate_clarifying_questions(query, analysis)
@@ -174,37 +203,58 @@ class EnhancedQAAgent:
         if show_analysis:
             print(self.knowledge_verifier.format_verification(assessment, analysis))
         
-        # Step 4: Decide on Search (Enhanced)
+        # Step 4: Decide on Search (Enhanced & Automated)
         should_search = self.knowledge_verifier.should_search(assessment)
         search_results = None
         
+        self.logger.log_decision(
+            stage="search_decision",
+            decision="search" if should_search else "skip_search",
+            reason=assessment.get('reason', 'Based on analysis'),
+            knowledge_level=assessment.get('knowledge_level')
+        )
+        
         if should_search:
-            # Confirm with user in interactive mode (if enabled)
-            if self.enable_verification and show_analysis:
-                confirmed = self.knowledge_verifier.get_user_confirmation()
-                if not confirmed:
-                    print("❌ Search cancelled by user.")
-                    should_search = False
+            # Step 5: Parallel Execution (Internal Knowledge + Web Search)
+            internal_knowledge = ""
+            search_results = None
             
-            if should_search:
-                # Step 5: Parallel Search with Time Filtering (Enhanced)
-                print("\n🌐 Searching web for latest information...")
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                # Submit tasks
+                future_internal = executor.submit(self._get_internal_knowledge, query)
+                
+                def run_search():
+                    with self.logger.track_latency("web_search"):
+                        return self.search_engine.search_with_rewrites(
+                            analysis['original'],
+                            analysis['rewritten'],
+                            max_results=3,
+                            time_sensitive=analysis.get('time_sensitive', False)
+                        )
+                
+                future_search = executor.submit(run_search)
+                
+                # Wait for results
                 try:
-                    search_results = self.search_engine.search_with_rewrites(
-                        analysis['original'],
-                        analysis['rewritten'],
-                        max_results=3,
-                        time_sensitive=analysis.get('time_sensitive', False)  # NEW
-                    )
-                    
-                    if search_results.get('count', 0) > 0:
-                        print(f"✅ Found {search_results['count']} relevant sources")
-                    else:
-                        print("⚠️  No search results found")
-                        search_results = None
+                    internal_knowledge = future_internal.result(timeout=600)
+                    search_results = future_search.result(timeout=600)
                 except Exception as e:
-                    print(f"⚠️  Search failed: {e}")
-                    search_results = None
+                    self.logger.error("Parallel execution failed", error=str(e))
+            
+            # Count results
+            count = search_results.get('count', 0) if search_results else 0
+            self.logger.log_metrics("search_results_count", count, "count")
+            
+            if count > 0:
+                if show_analysis: print(f"✅ Found {count} relevant sources")
+            else:
+                if show_analysis: print("⚠️  No search results found")
+                search_results = None
+                
+        else:
+            # If not searching, we still might want internal knowledge if not confident?
+            # For now, following original flow which jumps to generation.
+            internal_knowledge = None  # Or could generate here too if needed
         
         # Step 6: Create Optimized Prompt
         prompt = self.answer_synthesizer.create_prompt(
@@ -213,7 +263,8 @@ class EnhancedQAAgent:
             assessment,
             search_results,
             use_history,
-            self.conversation_history if use_history else None
+            self.conversation_history if use_history else None,
+            internal_context=internal_knowledge # Pass internal knowledge
         )
         
         # Step 7: Generate Initial Answer
@@ -354,6 +405,35 @@ class EnhancedQAAgent:
             
             return result['answer']
     
+    def rewrite_query_with_llm(self, query):
+        """Rewrite query using the LLM for better search effectiveness."""
+        rewrite_prompt = f"""
+        Task: Rewrite the following user query into a concise, keyword-focused Google search query to find the most relevant and up-to-date information.
+        
+        User Query: "{query}"
+        
+        Rules:
+        1. Remove conversational filler (e.g., "tell me about", "what is").
+        2. Focus on core entities and keywords.
+        3. If comparison, mention both items.
+        4. Do NOT output anything other than the rewritten query.
+        
+        Rewritten Query:
+        """
+        # Quick generation, low tokens
+        return self.generate_text(rewrite_prompt, max_new_tokens=32).strip().strip('"')
+
+    def _get_internal_knowledge(self, query):
+        """Get internal knowledge draft from model."""
+        knowledge_prompt = f"""
+        Please provide a concise summary of what you know about the following topic based ONLY on your training data. Do not hallucinate current events if you don't know them.
+        
+        Topic: "{query}"
+        
+        Summary:
+        """
+        return self.generate_text(knowledge_prompt, max_new_tokens=256).strip()
+
     def reset_conversation(self):
         """Reset conversation history."""
         self.conversation_history = []

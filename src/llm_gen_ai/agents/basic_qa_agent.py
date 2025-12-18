@@ -4,12 +4,12 @@ This agent responds to general queries using the LLM model and can search the we
 """
 
 import torch
-from llm_gen_ai.utils import (
+from llm_gen_ai.core.model_loader import (
     load_pretrained_model,
     load_tokenizer_model,
-    track_process_time,
     clear_device_cache
 )
+from llm_gen_ai.utils import track_process_time
 from llm_gen_ai.config import DEVICE, MODEL_PATH, GENERATION_CONFIG, MAX_MODEL_LENGTH
 from llm_gen_ai.core.search_engine import SearchEngine
 

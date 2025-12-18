@@ -115,17 +115,3 @@ class KnowledgeVerifier:
             bool: True if search recommended
         """
         return assessment['needs_search'] or assessment['knowledge_level'] in ['low', 'outdated', 'none']
-    
-    def get_user_confirmation(self) -> bool:
-        """
-        Get user confirmation to proceed with search.
-        (For interactive mode)
-        
-        Returns:
-            bool: True if user confirms
-        """
-        try:
-            response = input("\n🔍 Proceed with this approach? (Y/n): ").strip().lower()
-            return response in ['', 'y', 'yes']
-        except (EOFError, KeyboardInterrupt):
-            return True  # Default to yes

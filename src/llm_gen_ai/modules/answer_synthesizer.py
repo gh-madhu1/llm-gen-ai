@@ -14,7 +14,7 @@ class AnswerSynthesizer:
     
     def create_prompt(self, query: str, analysis: Dict, assessment: Dict, 
                      search_results: Optional[Dict] = None, use_history: bool = False,
-                     conversation_history: List[str] = None) -> str:
+                     conversation_history: List[str] = None, internal_context: Optional[str] = None) -> str:
         """
         Create an optimized prompt combining all information.
         
@@ -25,6 +25,7 @@ class AnswerSynthesizer:
             search_results: Web search results (if available)
             use_history: Whether to include conversation history
             conversation_history: Previous conversation
+            internal_context: Pre-generated internal knowledge (optional)
             
         Returns:
             Optimized prompt string
@@ -39,22 +40,33 @@ class AnswerSynthesizer:
             context = "\n".join(conversation_history[-4:])
             prompt_parts.append(f"\nConversation History:\n{context}")
         
+        # Add Internal Knowledge Context
+        if internal_context:
+            prompt_parts.append(f"\nInternal Knowledge Context:\n{internal_context}")
+        
         # Add search results if available
         if search_results and search_results.get('results'):
             prompt_parts.append(f"\nWeb Search Results ({search_results.get('count', 0)} sources):")
             prompt_parts.append(search_results['results'])
-            prompt_parts.append("\nIMPORTANT: Base your answer primarily on the above search results. Cite sources when possible.")
+            
+            # Instruction on how to balance sources
+            if internal_context:
+                prompt_parts.append("\nIMPORTANT: Synthesize the answer using both Internal Knowledge and Web Search Results.")
+                prompt_parts.append("- Use Web Search Results for current facts, numbers, and recent events (2023-2025).")
+                prompt_parts.append("- Use Internal Knowledge for general concepts, definitions, and durable facts.")
+                prompt_parts.append("- If sources conflict, PREFER WEB SEARCH RESULTS as they are more current.")
+            else:
+                prompt_parts.append("\nIMPORTANT: Base your answer primarily on the above search results. Cite sources when possible.")
         
         # Add query with context
         prompt_parts.append(f"\nUser Question: {query}")
         
         # Add specific instructions based on assessment
-        if assessment.get('knowledge_level') == 'high':
+        if assessment.get('knowledge_level') == 'high' and not search_results:
             prompt_parts.append("\nYou have strong knowledge on this topic. Provide a comprehensive answer.")
-        elif assessment.get('knowledge_level') in ['low', 'outdated']:
-            prompt_parts.append("\nThis requires current information. Use the search results above to provide an up-to-date answer.")
-        else:
-            prompt_parts.append("\nCombine your knowledge with the search results to provide a well-rounded answer.")
+        elif assessment.get('knowledge_level') in ['low', 'outdated'] and not search_results:
+             # Fallback if search failed
+            prompt_parts.append("\nThis topic may be recent. Answer to the best of your ability but admit if you don't know.")
         
         # Response format
         prompt_parts.append("\nProvide a clear, accurate answer. If citing search results, mention them naturally in your response.")

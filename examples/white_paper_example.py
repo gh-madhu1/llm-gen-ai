@@ -5,7 +5,8 @@ Provides a clean interface to run the agent with command-line arguments.
 """
 import argparse
 import sys
-from llm_gen_ai.utils import load_pretrained_model, load_tokenizer_model, track_process_time
+from llm_gen_ai.core.model_loader import load_pretrained_model, load_tokenizer_model
+from llm_gen_ai.utils import track_process_time
 from llm_gen_ai.agents.white_paper_agent import generate
 from llm_gen_ai.config import MODEL_PATH
 

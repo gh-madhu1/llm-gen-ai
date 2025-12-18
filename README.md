@@ -86,7 +86,7 @@ python examples/white_paper_example.py --idea "Your research topic here"
 
 ```python
 from llm_gen_ai import EnhancedQAAgent
-from llm_gen_ai.utils import load_pretrained_model, load_tokenizer_model
+from llm_gen_ai.core.model_loader import load_pretrained_model, load_tokenizer_model
 from llm_gen_ai.config import MODEL_PATH
 
 # Load model
@@ -113,10 +113,10 @@ print(answer)
 llm-gen-ai/
 ├── src/llm_gen_ai/          # Main package
 │   ├── agents/              # Agent implementations
-│   ├── core/                # Core functionality (memory, search, docs)
-│   ├── modules/             # Modular components (query analysis, synthesis, etc.)
-│   ├── config.py            # Configuration
-│   └── utils.py             # Utility functions
+│   ├── core/                # Core logic (loading, observability, memory, search)
+│   ├── modules/             # Modular tasks (analysis, synthesis, etc.)
+│   ├── config.py            # Global configuration
+│   └── utils.py             # Shared utility functions
 ├── examples/                # Usage examples
 ├── experiments/             # Experimental model scripts
 ├── notebooks/               # Jupyter notebooks

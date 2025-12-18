@@ -3,7 +3,7 @@
 Simple runner script for the General Q&A Agent.
 """
 
-from llm_gen_ai.utils import load_pretrained_model, load_tokenizer_model
+from llm_gen_ai.core.model_loader import load_pretrained_model, load_tokenizer_model
 from llm_gen_ai.agents.basic_qa_agent import interactive_mode, answer_query, GeneralQAAgent
 from llm_gen_ai.config import MODEL_PATH
 import sys

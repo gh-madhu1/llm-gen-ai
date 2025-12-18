@@ -13,7 +13,7 @@ else:
     DEVICE = torch.device("cpu")
 
 # Model Configuration
-MODEL_PATH = "meta-llama/Llama-3.2-3B-Instruct"
+MODEL_PATH = "Qwen/Qwen2.5-1.5B-Instruct"
 MAX_MODEL_LENGTH = 4096  # Maximum input tokens
 
 # ===== INFERENCE OPTIMIZATION SETTINGS =====
